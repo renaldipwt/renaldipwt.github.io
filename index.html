@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PWA Share & OCR Tool</title>
+
+  <link rel="manifest" href="manifest.json">
+
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      text-align: center;
+      padding: 15px;
+      background-color: #f4f7f6;
+      color: #333;
+      margin: 0;
+    }
+    .container {
+      max-width: 500px;
+      margin: 0 auto;
+      background: white;
+      padding: 20px;
+      border-radius: 12px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+    }
+    h2 {
+      margin-top: 0;
+    }
+    img {
+      margin-top: 15px;
+      max-width: 100%;
+      border-radius: 8px;
+      display: none; /* Sembunyikan jika belum ada gambar */
+    }
+    .form-group {
+      text-align: left;
+      margin-top: 15px;
+    }
+    label {
+      display: block;
+      font-weight: bold;
+      margin-bottom: 5px;
+      font-size: 14px;
+    }
+    input, select {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ccc;
+      border-radius: 5px;
+      box-sizing: border-box;
+      font-size: 15px;
+    }
+    small {
+      color: #666;
+      font-size: 12px;
+      display: block;
+      margin-top: 4px;
+    }
+    button {
+      width: 100%;
+      padding: 12px;
+      margin-top: 20px;
+      background-color: #007bff;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      font-size: 16px;
+      font-weight: bold;
+      cursor: pointer;
+    }
+    button:disabled {
+      background-color: #ccc;
+      cursor: not-allowed;
+    }
+    #result {
+      margin-top: 20px;
+      padding: 10px;
+      background: #e9ecef;
+      border-radius: 5px;
+      white-space: pre-wrap;
+      font-family: monospace;
+      text-align: left;
+      font-size: 14px;
+      display: none; /* Sembunyikan jika kosong */
+    }
+    #status {
+      font-weight: bold;
+      color: #28a745;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <h2>📥 Input Data & OCR</h2>
+  <p id="status">Menunggu kiriman file/teks...</p>
+
+  <img id="preview" alt="Preview Gambar"/>
+
+  <div class="form-group">
+    <label for="nama-user">Nama User (Pelanggan):</label>
+    <input type="text" id="nama-user" placeholder="Ketik nama pelanggan...">
+  </div>
+
+  <div class="form-group">
+    <label for="nama-teknisi">Nama Teknisi (Pilih Sekali):</label>
+    <select id="nama-teknisi" onchange="saveTeknisiSettings()">
+      <option value="">-- Pilih Teknisi --</option>
+      <option value="Ipul">Ipul</option>
+      <option value="Tofik">Tofik</option>
+      <option value="Sarif">Sarif</option>
+      <option value="Dion">Dion</option>
+      <option value="Difa">Difa</option>
+      <option value="Hendra">Hendra</option>
+      <option value="Alvi">Alvi</option>
+    </select>
+    <small>Data teknisi akan tersimpan otomatis di HP ini.</small>
+  </div>
+
+  <div class="form-group">
+    <label for="key-office">Key Office:</label>
+    <input type="text" id="key-office" placeholder="Tempel/Share key di sini...">
+  </div>
+
+  <button id="btn-scan" onclick="prosesData()">Kirim ke Spreadsheet</button>
+  
+  <div id="result"></div>
+</div>
+
+<script>
+  let currentBlob = null;
+
+  // 1. FUNGSI AMBIL DATA DARI CACHE (KIRIMAN SHARE)
+  async function loadSharedData() {
+    try {
+      const cache = await caches.open('shared-files');
+      
+      // Cek apakah ada kiriman gambar
+      const imgRes = await cache.match('/shared-image');
+      if (imgRes) {
+        currentBlob = await imgRes.blob();
+        const preview = document.getElementById('preview');
+        preview.src = URL.createObjectURL(currentBlob);
+        preview.style.display = 'block';
+        document.getElementById('status').innerText = "✅ Gambar diterima! Siap scan.";
+        await cache.delete('/shared-image');
+      }
+
+      // Cek apakah ada kiriman teks
+      const txtRes = await cache.match('/shared-text');
+      if (txtRes) {
+        const sharedText = await txtRes.text();
+        document.getElementById('key-office').value = sharedText.trim();
+        document.getElementById('status').innerText = "✅ Teks otomatis masuk ke Key Office!";
+        await cache.delete('/shared-text');
+      }
+    } catch (error) {
+      console.error("Gagal load dari cache:", error);
+    }
+  }
+
+  // 2. FUNGSI MEMORI TEKNISI (LOCAL STORAGE)
+  function saveTeknisiSettings() {
+    const selectedTeknisi = document.getElementById('nama-teknisi').value;
+    localStorage.setItem('savedTeknisi', selectedTeknisi);
+  }
+
+  function loadTeknisiSettings() {
+    const savedName = localStorage.getItem('savedTeknisi');
+    if (savedName) {
+      document.getElementById('nama-teknisi').value = savedName;
+    }
+  }
+
+  // 3. FUNGSI EKSTRAK KEY WINDOWS (REGEX)
+  function extractKeys(text) {
+    const regex = /[A-Z0-9]{5}(?:-[A-Z0-9]{5}){4}/g;
+    return text.toUpperCase().match(regex) || [];
+  }
+
+  // 4. FUNGSI RESET FORM SETELAH BERHASIL
+  function resetForm() {
+    document.getElementById('nama-user').value = '';
+    document.getElementById('key-office').value = '';
+    
+    // Sembunyikan gambar dan hapus blob
+    const preview = document.getElementById('preview');
+    preview.style.display = 'none';
+    preview.src = '';
+    currentBlob = null;
+
+    document.getElementById('status').innerText = "Menunggu data selanjutnya...";
+    
+    // Sembunyikan kotak result setelah 5 detik
+    setTimeout(() => {
+      document.getElementById('result').style.display = 'none';
+    }, 5000);
+  }
+
+  // 5. FUNGSI KIRIM KE GOOGLE SHEETS
+  async function saveToSheet(keys, namaUser, namaTeknisi, keyOffice) {
+    try {
+      // GANTI URL DI BAWAH INI DENGAN URL WEB APP KAMU!
+      const urlGAS = "https://script.google.com/macros/s/AKfycbxQ_0z9KXl4RDlVOsjLm2ivUvPumrimPzP2ZpGhyf7EBRasyMmk4HgxSjmG1aIt0OX5/exec"; 
+      
+      const res = await fetch(urlGAS, {
+        method: "POST",
+        body: JSON.stringify({
+          keys: keys,
+          nama: namaUser,
+          teknisi: namaTeknisi,
+          keyOffice: keyOffice
+        })
+      });
+      return res.ok;
+    } catch (e) {
+      console.error(e);
+      return false;
+    }
+  }
+
+  // 6. FUNGSI UTAMA (PROSES DATA)
+  async function prosesData() {
+    const btn = document.getElementById('btn-scan');
+    const resultDiv = document.getElementById('result');
+    const namaUser = document.getElementById('nama-user').value.trim();
+    const namaTeknisi = document.getElementById('nama-teknisi').value;
+    const keyOffice = document.getElementById('key-office').value.trim();
+
+    // Validasi input
+    if (!namaUser) {
+      alert("Harap isi Nama User (Pelanggan)!");
+      return;
+    }
+    if (!namaTeknisi) {
+      alert("Harap pilih Nama Teknisi!");
+      return;
+    }
+
+    resultDiv.style.display = 'block';
+    btn.disabled = true;
+
+    // JIKA TIDAK ADA GAMBAR (KIRIM MANUAL SAJA)
+    if (!currentBlob) {
+      resultDiv.innerText = "⏳ Sedang mengirim data (Tanpa Gambar)...";
+      
+      const success = await saveToSheet([], namaUser, namaTeknisi, keyOffice);
+      
+      if (success) {
+        resultDiv.innerText = "✅ Data berhasil disimpan ke Sheets!";
+        resetForm(); // Bersihkan form
+      } else {
+        resultDiv.innerText = "❌ Gagal mengirim ke Sheets.";
+      }
+      
+      btn.disabled = false;
+      return;
+    }
+
+    // JIKA ADA GAMBAR (LAKUKAN OCR DULU)
+    resultDiv.innerText = "⏳ Sedang Scan OCR...";
+
+    const formData = new FormData();
+    formData.append("file", currentBlob, "image.png");
+    formData.append("detectOrientation", "true");
+
+    try {
+      const res = await fetch("https://api.ocr.space/parse/image", {
+        method: "POST",
+        headers: { "apikey": "K86755146688957" }, // API Key OCR Space
+        body: formData
+      });
+      
+      const data = await res.json();
+      
+      if (data.IsErroredOnProcessing) {
+        throw new Error("Gagal memproses gambar");
+      }
+
+      const text = data.ParsedResults[0].ParsedText;
+      const keys = extractKeys(text);
+
+      if (keys.length > 0) {
+        resultDiv.innerText = "✅ KEY DITEMUKAN:\n" + keys.join("\n") + "\n\n⏳ Menyimpan ke Sheets...";
+        
+        const success = await saveToSheet(keys, namaUser, namaTeknisi, keyOffice);
+        if (success) {
+          resultDiv.innerText += "\n✅ Berhasil Disimpan!";
+          resetForm();
+        } else {
+          resultDiv.innerText += "\n❌ Gagal Simpan ke Sheets.";
+        }
+      } else {
+        resultDiv.innerText = "❌ Tidak ada Key Windows di gambar.\n⏳ Tetap menyimpan data lainnya...";
+        
+        const success = await saveToSheet([], namaUser, namaTeknisi, keyOffice);
+        if (success) {
+          resultDiv.innerText += "\n✅ Berhasil Disimpan!";
+          resetForm();
+        }
+      }
+
+    } catch (e) {
+      resultDiv.innerText = "❌ Error sistem OCR / Jaringan.";
+      console.error(e);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  // JALANKAN SAAT APLIKASI DIBUKA
+  window.onload = async () => {
+    loadTeknisiSettings(); // Ambil nama teknisi dari memori HP
+    await loadSharedData(); // Ambil data dari hasil share (jika ada)
+  };
+
+  // REGISTER SERVICE WORKER UNTUK PWA
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js')
+      .then(() => console.log("Service Worker Aktif"))
+      .catch(err => console.error("SW Error:", err));
+  }
+</script>
+
+</body>
+</html>
