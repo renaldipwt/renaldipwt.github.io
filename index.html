@@ -301,7 +301,7 @@
       }
 
       const text = data.ParsedResults[0].ParsedText;
-      const keys = extractKeysSpreadsheetStyle(text);
+      const keys = extractKeys(text);
 
       if (keys.length > 0) {
         resultDiv.innerText = "✅ KEY DITEMUKAN:\n" + keys.join("\n") + "\n\n⏳ Menyimpan ke Sheets...";
