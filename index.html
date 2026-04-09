@@ -180,6 +180,27 @@
     return text.toUpperCase().match(regex) || [];
   }
 
+  // FUNCTION SEMENTARA
+  function extractKeysSpreadsheetStyle(text) {
+    if (!text) return [];
+  
+    // 1. Definisikan Regex sesuai logika Spreadsheet:
+    // (?si) -> s: dotall (agar .* melewati baris baru), i: ignore case
+    // Mengambil pola yang didahului "KEY", spasi, atau titik dua
+    const regex = /KEY\s*:*\s*([A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5})/gi;
+  
+    const results = [];
+    let match;
+  
+    // 2. Loop untuk mencari semua kemunculan (seperti REGEXREPLACE + SPLIT)
+    while ((match = regex.exec(text)) !== null) {
+      // match[1] adalah Group 1, yaitu bagian ([A-Z0-9]{5}-...)
+      results.push(match[1].toUpperCase());
+    }
+  
+    return results;
+  }
+
   // 4. FUNGSI RESET FORM SETELAH BERHASIL
   function resetForm() {
     document.getElementById('nama-user').value = '';
@@ -280,7 +301,7 @@
       }
 
       const text = data.ParsedResults[0].ParsedText;
-      const keys = extractKeys(text);
+      const keys = extractKeysSpreadsheetStyle(text);
 
       if (keys.length > 0) {
         resultDiv.innerText = "✅ KEY DITEMUKAN:\n" + keys.join("\n") + "\n\n⏳ Menyimpan ke Sheets...";
