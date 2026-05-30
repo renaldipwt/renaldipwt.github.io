@@ -31,7 +31,7 @@
       margin-top: 15px;
       max-width: 100%;
       border-radius: 8px;
-      display: none; /* Sembunyikan jika belum ada gambar */
+      display: none;
     }
     .form-group {
       text-align: left;
@@ -82,7 +82,7 @@
       font-family: monospace;
       text-align: left;
       font-size: 14px;
-      display: none; /* Sembunyikan jika kosong */
+      display: none;
     }
     #status {
       font-weight: bold;
@@ -125,7 +125,7 @@
   </div>
 
   <button id="btn-scan" onclick="prosesData()">Kirim ke Spreadsheet</button>
-  <small>Renaldi - Teknisi Support - Els Purwokerto - v0.1 (Testing)</small>
+  <small>Renaldi - Teknisi Support - Els Purwokerto - v0.2 (Google OCR)</small>
   <div id="result"></div>
 </div>
 
@@ -137,7 +137,6 @@
     try {
       const cache = await caches.open('shared-files');
       
-      // Cek apakah ada kiriman gambar
       const imgRes = await cache.match('/shared-image');
       if (imgRes) {
         currentBlob = await imgRes.blob();
@@ -148,7 +147,6 @@
         await cache.delete('/shared-image');
       }
 
-      // Cek apakah ada kiriman teks
       const txtRes = await cache.match('/shared-text');
       if (txtRes) {
         const sharedText = await txtRes.text();
@@ -174,39 +172,11 @@
     }
   }
 
-  // 3. FUNGSI EKSTRAK KEY WINDOWS (REGEX)
-  function extractKeys(text) {
-    const regex = /[A-Z0-9]{5}(?:-[A-Z0-9]{5}){4}/g;
-    return text.toUpperCase().match(regex) || [];
-  }
-
-  // FUNCTION SEMENTARA
-  function extractKeysSpreadsheetStyle(text) {
-    if (!text) return [];
-  
-    // 1. Definisikan Regex sesuai logika Spreadsheet:
-    // (?si) -> s: dotall (agar .* melewati baris baru), i: ignore case
-    // Mengambil pola yang didahului "KEY", spasi, atau titik dua
-    const regex = /KEY\s*:*\s*([A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5}-[A-Z0-9]{5})/gi;
-  
-    const results = [];
-    let match;
-  
-    // 2. Loop untuk mencari semua kemunculan (seperti REGEXREPLACE + SPLIT)
-    while ((match = regex.exec(text)) !== null) {
-      // match[1] adalah Group 1, yaitu bagian ([A-Z0-9]{5}-...)
-      results.push(match[1].toUpperCase());
-    }
-  
-    return results;
-  }
-
-  // 4. FUNGSI RESET FORM SETELAH BERHASIL
+  // 3. FUNGSI RESET FORM SETELAH BERHASIL
   function resetForm() {
     document.getElementById('nama-user').value = '';
     document.getElementById('key-office').value = '';
     
-    // Sembunyikan gambar dan hapus blob
     const preview = document.getElementById('preview');
     preview.style.display = 'none';
     preview.src = '';
@@ -214,35 +184,21 @@
 
     document.getElementById('status').innerText = "Menunggu data selanjutnya...";
     
-    // Sembunyikan kotak result setelah 5 detik
     setTimeout(() => {
       document.getElementById('result').style.display = 'none';
     }, 5000);
   }
 
-  // 5. FUNGSI KIRIM KE GOOGLE SHEETS
-  async function saveToSheet(keys, namaUser, namaTeknisi, keyOffice) {
-    try {
-      // GANTI URL DI BAWAH INI DENGAN URL WEB APP KAMU!
-      const urlGAS = "https://script.google.com/macros/s/AKfycbxQ_0z9KXl4RDlVOsjLm2ivUvPumrimPzP2ZpGhyf7EBRasyMmk4HgxSjmG1aIt0OX5/exec"; 
-      
-      const res = await fetch(urlGAS, {
-        method: "POST",
-        body: JSON.stringify({
-          keys: keys,
-          nama: namaUser,
-          teknisi: namaTeknisi,
-          keyOffice: keyOffice
-        })
-      });
-      return res.ok;
-    } catch (e) {
-      console.error(e);
-      return false;
-    }
+  // 4. HELPER: CONVERT BLOB KE BASE64
+  function blobToBase64(blob) {
+    return new Promise((resolve, _) => {
+      const reader = new FileReader();
+      reader.onloadend = () => resolve(reader.result.split(',')[1]);
+      reader.readAsDataURL(blob);
+    });
   }
 
-  // 6. FUNGSI UTAMA (PROSES DATA)
+  // 5. FUNGSI UTAMA (PROSES DATA & KIRIM KE GAS)
   async function prosesData() {
     const btn = document.getElementById('btn-scan');
     const resultDiv = document.getElementById('result');
@@ -250,7 +206,6 @@
     const namaTeknisi = document.getElementById('nama-teknisi').value;
     const keyOffice = document.getElementById('key-office').value.trim();
 
-    // Validasi input
     if (!namaUser) {
       alert("Harap isi Nama User (Pelanggan)!");
       return;
@@ -262,82 +217,59 @@
 
     resultDiv.style.display = 'block';
     btn.disabled = true;
+    resultDiv.innerText = "⏳ Memproses data...";
 
-    // JIKA TIDAK ADA GAMBAR (KIRIM MANUAL SAJA)
-    if (!currentBlob) {
-      resultDiv.innerText = "⏳ Sedang mengirim data (Tanpa Gambar)...";
-      
-      const success = await saveToSheet([], namaUser, namaTeknisi, keyOffice);
-      
-      if (success) {
-        resultDiv.innerText = "✅ Data berhasil disimpan ke Sheets!";
-        resetForm(); // Bersihkan form
-      } else {
-        resultDiv.innerText = "❌ Gagal mengirim ke Sheets.";
-      }
-      
-      btn.disabled = false;
-      return;
+    let base64Image = "";
+    let mimeType = "";
+
+    if (currentBlob) {
+      resultDiv.innerText = "⏳ Mengubah gambar & mengirim ke Google Server...";
+      base64Image = await blobToBase64(currentBlob);
+      mimeType = currentBlob.type;
     }
 
-    // JIKA ADA GAMBAR (LAKUKAN OCR DULU)
-    resultDiv.innerText = "⏳ Sedang Scan OCR...";
-
-    const formData = new FormData();
-    formData.append("file", currentBlob, "image.png");
-    formData.append("detectOrientation", "true");
+    // GANTI URL DI BAWAH INI DENGAN URL WEB APP GAS KAMU
+    const urlGAS = "https://script.google.com/macros/s/AKfycbxQ_0z9KXl4RDlVOsjLm2ivUvPumrimPzP2ZpGhyf7EBRasyMmk4HgxSjmG1aIt0OX5/exec"; 
 
     try {
-      const res = await fetch("https://api.ocr.space/parse/image", {
+      const res = await fetch(urlGAS, {
         method: "POST",
-        headers: { "apikey": "K86755146688957" }, // API Key OCR Space
-        body: formData
+        body: JSON.stringify({
+          nama: namaUser,
+          teknisi: namaTeknisi,
+          keyOffice: keyOffice,
+          imageB64: base64Image,
+          mimeType: mimeType
+        })
       });
       
-      const data = await res.json();
-      
-      if (data.IsErroredOnProcessing) {
-        throw new Error("Gagal memproses gambar");
-      }
+      const responseGAS = await res.json();
 
-      const text = data.ParsedResults[0].ParsedText;
-      const keys = extractKeys(text);
-
-      if (keys.length > 0) {
-        resultDiv.innerText = "✅ KEY DITEMUKAN:\n" + keys.join("\n") + "\n\n⏳ Menyimpan ke Sheets...";
-        
-        const success = await saveToSheet(keys, namaUser, namaTeknisi, keyOffice);
-        if (success) {
-          resultDiv.innerText += "\n✅ Berhasil Disimpan!";
-          resetForm();
+      if (responseGAS.status === "success") {
+        if (responseGAS.keysDitemukan && responseGAS.keysDitemukan.length > 0) {
+          resultDiv.innerText = "✅ Berhasil! KEY DITEMUKAN:\n" + responseGAS.keysDitemukan.join("\n") + "\n\nData tersimpan di Sheets.";
+        } else if (base64Image !== "") {
+          resultDiv.innerText = "⚠️ Google OCR tidak menemukan Key di gambar.\n\n✅ Tapi data lain berhasil disimpan di Sheets.";
         } else {
-          resultDiv.innerText += "\n❌ Gagal Simpan ke Sheets.";
+          resultDiv.innerText = "✅ Data manual berhasil disimpan di Sheets (Tanpa Gambar).";
         }
+        resetForm();
       } else {
-        resultDiv.innerText = "❌ Tidak ada Key Windows di gambar.\n⏳ Tetap menyimpan data lainnya...";
-        
-        const success = await saveToSheet([], namaUser, namaTeknisi, keyOffice);
-        if (success) {
-          resultDiv.innerText += "\n✅ Berhasil Disimpan!";
-          resetForm();
-        }
+        resultDiv.innerText = "❌ Gagal menyimpan ke Sheets: " + responseGAS.message;
       }
-
     } catch (e) {
-      resultDiv.innerText = "❌ Error sistem OCR / Jaringan.";
+      resultDiv.innerText = "❌ Error Jaringan / Server GAS.";
       console.error(e);
     } finally {
       btn.disabled = false;
     }
   }
 
-  // JALANKAN SAAT APLIKASI DIBUKA
   window.onload = async () => {
-    loadTeknisiSettings(); // Ambil nama teknisi dari memori HP
-    await loadSharedData(); // Ambil data dari hasil share (jika ada)
+    loadTeknisiSettings();
+    await loadSharedData();
   };
 
-  // REGISTER SERVICE WORKER UNTUK PWA
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js')
       .then(() => console.log("Service Worker Aktif"))
